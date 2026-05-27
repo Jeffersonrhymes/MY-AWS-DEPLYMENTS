@@ -1,0 +1,174 @@
+⭐ FULL 3‑TIER DEPLOYMENT IN AWS (GUI) — USING SSM ONLY
+(No SSH, no port 22, no public EC2 instances)
+
+1️⃣ Create the VPC
+Go to VPC → Create VPC
+
+Name: three-tier-ssm-vpc
+
+IPv4 CIDR: 10.0.0.0/16
+
+Enable DNS hostnames: Yes
+
+2️⃣ Create Subnets
+You need 6 subnets (2 per tier, across 2 AZs)
+
+Public Subnets (for ALB + NAT)
+10.0.1.0/24 (AZ1)
+
+10.0.2.0/24 (AZ2)
+
+Private App Subnets (for EC2 ASG)
+10.0.10.0/24 (AZ1)
+
+10.0.11.0/24 (AZ2)
+
+Private DB Subnets (for RDS)
+10.0.20.0/24 (AZ1)
+
+10.0.21.0/24 (AZ2)
+
+3️⃣ Internet Gateway
+VPC → Internet Gateways → Create
+
+Attach to your VPC
+
+4️⃣ NAT Gateway
+VPC → NAT Gateways → Create
+
+Subnet: Public Subnet 1
+
+Elastic IP: Allocate new
+
+This allows private EC2 instances to reach SSM.
+
+5️⃣ Route Tables
+Public Route Table
+Add route: 0.0.0.0/0 → Internet Gateway
+
+Associate both public subnets
+
+Private Route Table
+Add route: 0.0.0.0/0 → NAT Gateway
+
+Associate app + db subnets
+
+6️⃣ Security Groups
+No port 22 anywhere.
+
+ALB SG
+Inbound: 80/443 from 0.0.0.0/0
+
+App SG
+Inbound: 8080 from ALB SG
+
+DB SG
+Inbound: 5432 (Postgres) or 3306 (MySQL) from App SG
+
+7️⃣ IAM Role for EC2 (SSM Access)
+Go to IAM → Roles → Create Role
+
+Trusted entity: EC2
+
+Attach policy:
+
+AmazonSSMManagedInstanceCore
+
+Name: three-tier-ssm-ec2-role
+
+This is what allows SSM access instead of SSH.
+
+8️⃣ Create Launch Template (App Tier)
+Go to EC2 → Launch Templates → Create
+
+AMI: Amazon Linux 2
+
+Instance type: t3.micro
+
+IAM role: three-tier-ssm-ec2-role
+
+Security group: App SG
+
+User data (optional simple app):
+
+Code
+#!/bin/bash
+yum update -y
+yum install -y httpd
+systemctl enable httpd
+systemctl start httpd
+echo "OK" > /var/www/html/health
+echo "Hello from App Tier" > /var/www/html/index.html
+9️⃣ Create Auto Scaling Group
+Go to EC2 → Auto Scaling → Create ASG
+
+Launch template: select the one you created
+
+VPC: your VPC
+
+Subnets: private app subnets
+
+Desired: 2
+
+Min: 2
+
+Max: 6
+
+Attach to target group (created in next step).
+
+🔟 Create ALB (Web Tier)
+Go to EC2 → Load Balancers → Create ALB
+
+Type: Application Load Balancer
+
+Scheme: Internet-facing
+
+Subnets: both public subnets
+
+Security group: ALB SG
+
+Create Target Group
+Type: Instance
+
+Port: 8080
+
+Health check: /health
+
+Listener
+HTTP 80 → Forward to target group
+
+1️⃣1️⃣ Create RDS (DB Tier)
+Go to RDS → Create Database
+
+Engine: Postgres or MySQL
+
+Template: Free tier or Production
+
+Multi-AZ: optional
+
+Credentials: choose username/password
+
+Subnet group: select private DB subnets
+
+Public access: NO
+
+Security group: DB SG
+
+1️⃣2️⃣ Verify SSM Access (No SSH Needed)
+Go to Systems Manager → Fleet Manager → Nodes
+
+You should see your EC2 instances appear.
+
+Click Node → Connect → Start Session
+
+You now have full shell access without port 22.
+
+1️⃣3️⃣ Test the Application
+Open the ALB DNS name:
+
+Code
+http://<your-alb-dns>
+You should see:
+
+Code
+Hello from App Tier
