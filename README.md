@@ -1,2 +1,2 @@
 # MY-AWS-DEPLYMENTS
-Here's my deployment Repo
+Here's my entire AWS deployment Repository
